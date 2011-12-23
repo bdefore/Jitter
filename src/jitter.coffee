@@ -49,6 +49,7 @@ else
 
 CoffeeScript=  require targetlib
 {exec}=        require 'child_process'
+{spawn}=         require 'child_process'
 {puts, print}= try require 'util' catch e then require 'sys'
 {q}=           require 'sink'
 
