@@ -60,18 +60,22 @@ BANNER= '''
   Jitter also watches for changes and automatically recompiles as
   needed. It even detects new files, unlike the coffee utility.
 
-  If passed a test directory, it will run each test through node on
-  each change.
+  This variant of Jitter will automatically run 'npm test' after a
+  successful compilation.
+
+  If passed a third parameter, node will be started with the script
+  at this path.
 
   Usage:
-    jitter coffee-path js-path [test-path]
+    jitter coffee-path js-path [nodeStartScript]
         '''
 # Globals
 options= {}
-baseSource= baseTarget= baseTest= ''
+baseSource= baseTarget= ''
 optionParser= null
 isWatched= {}
-testFiles= []
+nodeStartScript= ''
+nodeProcess= null
 
 exports.run= ->
   options = parseOptions()
@@ -80,7 +84,6 @@ exports.run= ->
 
 compileScripts= (options) ->
   dirs= Source: baseSource, Target: baseTarget
-  dirs.Test= baseTest if baseTest
   for name, dir of dirs
     q path.exists, dir, (exists) ->
       unless exists
@@ -88,7 +91,7 @@ compileScripts= (options) ->
       else unless fs.statSync(dir).isDirectory()
         die "#{name} '#{dir}' is a file; Jitter needs a directory."
   q -> rootCompile options
-  q runTests
+  q runNodeStartScript
   q ->
     puts 'Watching for changes and new files. Press Ctrl+C to stop.'
     setInterval ->
@@ -109,7 +112,6 @@ compile= (source, target, options) ->
 
 rootCompile= (options) ->
   compile(baseSource, baseTarget, options)
-  compile(baseTest, baseTest, options) if baseTest
 
 readScript= (source, target, options) ->
   compileScript(source, target, options)
@@ -121,7 +123,8 @@ watchScript= (source, target, options) ->
   fs.watchFile source, persistent: true, interval: 250, (curr, prev) ->
     return if curr.mtime.getTime() is prev.mtime.getTime()
     compileScript(source, target, options)
-    q runTests
+    puts 'fwee'
+    q runNodeStartScript
 
 compileScript= (source, target, options) ->
   targetPath = jsPath source, target
@@ -141,16 +144,13 @@ compileScript= (source, target, options) ->
     notify source, err.message
 
 jsPath= (source, target) ->
-  base= if target is baseTest then baseTest else baseSource
   filename= path.basename(source, path.extname(source)) + '.js'
-  dir=      target + path.dirname(source).substring(base.length)
+  dir=      target + path.dirname(source).substring(baseSource.length)
   path.join dir, filename
 
 writeJS= (js, targetPath) ->
   q exec, "mkdir -p #{path.dirname targetPath}", ->
     fs.writeFileSync targetPath, js
-    if baseTest and isSubpath(baseTest, targetPath) and (targetPath not in testFiles)
-      testFiles.push targetPath
 
 notify= (source, errMessage) ->
   basename= source.replace(/^.*[\/\\]/, '')
@@ -165,20 +165,34 @@ notify= (source, errMessage) ->
     args= ['notify-send', '-c', 'CoffeeScript', '-t', '2', "\"Compilation failed\"", "\"#{message}\""]
     exec args.join(' ')
 
-runTests= ->
-  for test in testFiles
-    puts "Running #{test}"
-    exec "node #{test}", (error, stdout, stderr) ->
-      print stdout
-      print stderr
-      notify test, stderr if stderr
+runNodeStartScript= ->
+
+  testProcess = spawn "npm", ["test"]
+  testProcess.stdout.on 'data', (data) ->
+    print data
+  testProcess.stderr.on 'data', (data) ->
+    print data
+  testProcess.on 'exit', (code) ->
+
+    # If already running node from previous compile, end it
+    if nodeProcess
+      nodeProcess.kill()
+
+    if nodeStartScript
+      nodeProcess = spawn "node", [ nodeStartScript ]
+      nodeProcess.stdout.on 'data', (data) ->
+        print data
+      nodeProcess.stderr.on 'data', (data) ->
+        print data
+      nodeProcess.on 'exit', (code) ->
+
 
 parseOptions= ->
   optionParser= new optparse.OptionParser [
       ['-b', '--bare', 'compile without the top-level function wrapper']
   ], BANNER
   options=    optionParser.parse process.argv
-  [baseSource, baseTarget, baseTest]= (options.arguments[arg] or '' for arg in [2..4])
+  [baseSource, baseTarget, nodeStartScript]= (options.arguments[arg] or '' for arg in [2..4])
   if /\/$/.test baseSource then baseSource= baseSource.substr 0, baseSource.length-1
   if /\/$/.test baseTarget then baseTarget= baseTarget.substr 0, baseTarget.length-1
   options

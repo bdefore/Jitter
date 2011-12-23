@@ -1,3 +1,11 @@
+# Fork Notes
+
+This variant of Jitter will automatically run 'npm test' after a
+successful compilation.
+
+If passed a third parameter, node will be started with the script
+at this path.
+
 # Jitter
 
 Simple continuous compilation for [CoffeeScript](http://coffeescript.org), from the author
