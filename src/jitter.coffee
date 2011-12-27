@@ -38,6 +38,7 @@
 # External dependencies
 fs=            require 'fs'
 path=          require 'path'
+coffeelint=    require 'coffeelint'
 optparse=      require './optparse'
 
 if path.basename(process.argv[1]) == 'witter'
@@ -61,14 +62,16 @@ BANNER= '''
   Jitter also watches for changes and automatically recompiles as
   needed. It even detects new files, unlike the coffee utility.
 
-  This variant of Jitter will automatically run 'npm test' after a
-  successful compilation.
+  This variant of Jitter accepts arguments of:
+  
+    ['-l', '--lint', 'run coffeelint on source directory before compiling']
+    ['-t', '--test', 'run npm test on source directory after compiling']
 
   If passed a third parameter, node will be started with the script
   at this path.
 
   Usage:
-    jitter coffee-path js-path [nodeStartScript]
+    jitter [-lt] coffee-path js-path [nodeStartScript]
         '''
 # Globals
 options= {}
@@ -92,7 +95,7 @@ compileScripts= (options) ->
       else unless fs.statSync(dir).isDirectory()
         die "#{name} '#{dir}' is a file; Jitter needs a directory."
   q -> rootCompile options
-  q runNodeStartScript
+  q postCompile
   q ->
     puts 'Watching for changes and new files. Press Ctrl+C to stop.'
     setInterval ->
@@ -124,8 +127,7 @@ watchScript= (source, target, options) ->
   fs.watchFile source, persistent: true, interval: 250, (curr, prev) ->
     return if curr.mtime.getTime() is prev.mtime.getTime()
     compileScript(source, target, options)
-    puts 'fwee'
-    q runNodeStartScript
+    q postCompile
 
 compileScript= (source, target, options) ->
   targetPath = jsPath source, target
@@ -133,6 +135,8 @@ compileScript= (source, target, options) ->
     code= fs.readFileSync(source).toString()
     try
       currentJS = fs.readFileSync(targetPath).toString()
+    if options?.lint
+      lint source
     js= CoffeeScript.compile code, {source, bare: options?.bare}
     return if js is currentJS
     writeJS js, targetPath
@@ -166,30 +170,42 @@ notify= (source, errMessage) ->
     args= ['notify-send', '-c', 'CoffeeScript', '-t', '2', "\"Compilation failed\"", "\"#{message}\""]
     exec args.join(' ')
 
-runNodeStartScript= ->
-
-  testProcess = spawn "npm", ["test"]
-  testProcess.stdout.on 'data', (data) ->
+lint= (source) ->
+  lintProcess = spawn "./node_modules/coffeelint/bin/coffeelint", [ source ]
+  lintProcess.stdout.on 'data', (data) ->
     print data
-  testProcess.stderr.on 'data', (data) ->
+  lintProcess.stderr.on 'data', (data) ->
     print data
-  testProcess.on 'exit', (code) ->
 
-    # If already running node from previous compile, end it
-    if nodeProcess
-      nodeProcess.kill()
+postCompile= ->
+  if options?.test
+    testProcess = spawn "npm", ["test"]
+    testProcess.stdout.on 'data', (data) ->
+      print data
+    testProcess.stderr.on 'data', (data) ->
+      print data
+    testProcess.on 'exit', (code) ->
+      runNodeScript()
+  else
+    runNodeScript()  
 
-    if nodeStartScript
-      nodeProcess = spawn "node", [ nodeStartScript ]
-      nodeProcess.stdout.on 'data', (data) ->
-        print data
-      nodeProcess.stderr.on 'data', (data) ->
-        print data
-      nodeProcess.on 'exit', (code) ->
+runNodeScript= ->
+  # If already running node from previous compile, end it
+  if nodeProcess
+    nodeProcess.kill()
 
+  if nodeStartScript
+    nodeProcess = spawn "node", [ nodeStartScript ]
+    nodeProcess.stdout.on 'data', (data) ->
+      print data
+    nodeProcess.stderr.on 'data', (data) ->
+      print data
+    nodeProcess.on 'exit', (code) ->  
 
 parseOptions= ->
   optionParser= new optparse.OptionParser [
+      ['-l', '--lint', 'run coffeelint on source directory before compiling']
+      ['-t', '--test', 'run npm test on source directory after compiling']
       ['-b', '--bare', 'compile without the top-level function wrapper']
   ], BANNER
   options=    optionParser.parse process.argv

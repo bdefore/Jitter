@@ -1,10 +1,15 @@
 # Fork Notes
 
-This variant of Jitter will automatically run 'npm test' after a
-successful compilation.
+This variant of Jitter accepts arguments of:
+
+['-l', '--lint', 'run coffeelint on source directory before compiling']
+['-t', '--test', 'run npm test on source directory after compiling']
 
 If passed a third parameter, node will be started with the script
 at this path.
+
+Usage:
+jitter [-lt] coffee-path js-path [nodeStartScript]
 
 # Jitter
 
